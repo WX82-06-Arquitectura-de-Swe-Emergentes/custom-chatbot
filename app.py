@@ -2,31 +2,22 @@ from flask import Flask, request, jsonify
 import pyrebase
 from creds import firebase_config, bot_id
 from datetime import datetime
-import os
 from langchain.agents import create_sql_agent
 from langchain.agents.agent_toolkits import SQLDatabaseToolkit
 from langchain.agents.agent_types import AgentType
-from langchain.utilities import SQLDatabase
-from langchain_experimental.sql import SQLDatabaseChain
 from langchain.llms.openai import OpenAI
-from langchain.chat_models import ChatOpenAI
 from langchain.sql_database import SQLDatabase
-import urllib
 
 from promp_templates import SQL_LIMIT_PROMPT, TABLES_LIMIT_PROMPT
 
 app = Flask(__name__)
 
-params = urllib.parse.quote_plus \
-    (r'Driver={ODBC Driver 17 for SQL Server};Server=tcp:lifetr4vel-db.database.windows.net,'
-     r'1433;Database=emergentes;Uid=iot_admin@lifetr4vel-db;Pwd=NexusNova2023;Encrypt=yes;TrustServerCertificate=no'
-     r';Connection Timeout=30;')
-conn_str = 'mssql+pyodbc:///?odbc_connect={}'.format(params)
+conn_str = 'mssql+pyodbc://iot_admin:NexusNova2023@lifetr4vel-db.database.windows.net:1433/emergentes?driver=ODBC+Driver+17+for+SQL+Server'
 
 firebase = pyrebase.initialize_app(firebase_config)
 db = firebase.database()
 
-""" 
+
 db_connection = SQLDatabase.from_uri(conn_str,
                                      include_tables=["trip",
                                                      "destination",
@@ -37,9 +28,19 @@ db_connection = SQLDatabase.from_uri(conn_str,
                                      )
 
 
+
 llm = OpenAI(temperature=0, verbose=True)
-db_chain = SQLDatabaseChain.from_llm(llm, db, verbose=True)
-"""
+toolkit = SQLDatabaseToolkit(db=db_connection, llm=OpenAI(model_name="davinci-002", temperature=0))
+
+agent_executor = create_sql_agent(
+    llm=OpenAI(temperature=0),
+    toolkit=toolkit,
+    verbose=True,
+    agent_type=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
+)
+
+#db_chain = SQLDatabaseChain.from_llm(llm, db_connection, verbose=True)
+
 
 
 @app.route('/')
@@ -55,7 +56,7 @@ def generate_and_save_message():
     messages = body['messages']
     print(messages)
 
-    message = generate_answer_test(messages)
+    message = generate_answer(messages)
     save_message(chat_id, message)
 
     return jsonify({'status': 'success'})
@@ -86,10 +87,20 @@ def generate_answer(messages):
     str_prompt += SQL_LIMIT_PROMPT
     str_prompt += TABLES_LIMIT_PROMPT
 
-    for message in messages:
-        str_prompt += message
+    if len(messages) > 1:
+        str_prompt += "HISTORY: "
+        for message in messages[:-1]:
+            str_prompt += message + ", "
 
-    openai_answer = db_chain.run(str_prompt)
+        str_prompt += "CURRENT QUESTION: " + messages[-1] + ":"
+    else:
+        str_prompt += messages[0]
+
+    print(str_prompt)
+
+    openai_answer = agent_executor.run(str_prompt)
+    print(openai_answer)
+
     return openai_answer
 
 
