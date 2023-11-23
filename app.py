@@ -16,7 +16,6 @@ import urllib
 from promp_templates import SQL_LIMIT_PROMPT, TABLES_LIMIT_PROMPT
 
 app = Flask(__name__)
-os.environ["OPENAI_API_KEY"] = "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"
 
 params = urllib.parse.quote_plus \
     (r'Driver={ODBC Driver 17 for SQL Server};Server=tcp:lifetr4vel-db.database.windows.net,'
